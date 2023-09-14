@@ -321,7 +321,7 @@ class Classifier(nn.Module):
         self.num_classes = num_classes
         self.vocab_size = vocab_size
 
-        self.token_embedding = nn.Embedding(vocab_size, embed_dim)
+        self.input_linear = nn.Linear(vocab_size, embed_dim)
         self.pos_embedding = PositionalEncoder(embed_dim)
 
         print(f"++ There will be {num_blocks} transformer blocks")
@@ -354,15 +354,17 @@ class Classifier(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        print("x:")
-        print(x)
-        tokens = self.token_embedding(x)
-        print("tokens:")
+        #weight_matrix = model.input_linear.weight
+        #print(len(weight_matrix))
+
+        tokens = self.input_linear(x)
+        #print(f"tokens: {tokens}")
         # batch_size, seq_len, embed_dim = x.size()
         x = self.pos_embedding(tokens)
         x = self.transformers(x)
         x = x.mean(dim=1)  # global average pooling, works in 1D
         x = self.dropout(x)
+        #print(x)
         # x = self.class_logits(x)
         # return F.log_softmax(x, dim=1)
         return self.class_logits(x)

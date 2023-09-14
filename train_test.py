@@ -11,10 +11,7 @@ from root_numpy import root2array, rec2array
 import logging
 import numpy as np
 import json
-import torchtext
-from torch.utils.data import Dataset, DataLoader
-#from torchtext import data
-from torchtext.legacy.data import *
+from torch.utils.data import Dataset, DataLoader, TensorDataset
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -47,13 +44,13 @@ def Trandform(sigArray, bkgArray, rangConst="_0_1"):
     if rangConst == "_0_1":
         sigConstrain = (sigArray - np.min(sigArray, axis=0)) / np.ptp(sigArray, axis=0)
     elif rangConst == "_n1_1":
-        sigConstrain = ((2.*(sigArray - mini)/(maxi-mini))-1)*10000
-        bkgConstrain = ((2.*(bkgArray - mini)/(maxi-mini))-1)*10000
+        sigConstrain = ((2.*(sigArray - mini)/(maxi-mini))-1)
+        bkgConstrain = ((2.*(bkgArray - mini)/(maxi-mini))-1)
 
 
     return sigConstrain, bkgConstrain
     
-def preparingData(confiFile="config_qqyy.json", prossEvent=100, fraction=0.5, seed=None, dataType="Classical"):
+def preparingData(confiFile="config_qqyy.json", prossEvent=1000, fraction=0.5, seed=None, dataType="Classical"):
     config = readConfig(confiFile)
 
     signal_dataset = root2array(
@@ -91,7 +88,7 @@ def preparingData(confiFile="config_qqyy.json", prossEvent=100, fraction=0.5, se
 
     y_signal = np.ones(X_signal.shape[0])
     y_background = np.ones(X_background.shape[0])
-    y_background = -1 * y_background
+    y_background = 0 * y_background
 
     X = np.concatenate([X_signal, X_background], axis=0)
     y = np.concatenate([y_signal, y_background])
@@ -108,13 +105,13 @@ def preparingData(confiFile="config_qqyy.json", prossEvent=100, fraction=0.5, se
     #else:
     #    print("The data will be prepared for the quantum case so no transformation is needed.")
 
-    labels = {1: "S", -1: "B"}
+    labels = {1: "S", 0: "B"}
 
     train_dataset = {
         labels[1]: X_train[y_train == 1],
-        labels[-1]: X_train[y_train == -1],
+        labels[0]: X_train[y_train == 0],
     }
-    test_dataset = {labels[1]: X_test[y_test == 1], labels[-1]: X_test[y_test == -1]}
+    test_dataset = {labels[1]: X_test[y_test == 1], labels[0]: X_test[y_test == 0]}
 
     return (
         X_train,
@@ -138,39 +135,39 @@ def binary_accuracy(preds, y):
     return acc
 
 
-def train(model, iterator, optimizer, criterion):
+def train(model, train_loader, optimizer, criterion):
     epoch_loss = 0
     epoch_acc = 0
-    
+
     model.train()
-    for batch in iterator:
+    for batch in train_loader:
         optimizer.zero_grad()
 
-        inputs = torch.LongTensor(batch[:6])
-        print(batch)
-        print(inputs)
-        label = batch[-1] 
-        print(label) 
-        print(inputs.shape)
-        print(inputs.dim())
-        inputs = inputs.unsqueeze(0)
-        
-        print(inputs.shape)
-        #if inputs.size(0) > MAX_SEQ_LEN:
-        #    inputs = inputs[:, :MAX_SEQ_LEN]
-        predictions = model(inputs).squeeze(1)
-        
-        loss = criterion(predictions, label)
-        acc = binary_accuracy(predictions, label)
-        
+        # 获取输入和标签
+        inputs, label = batch
+        #print(f'inputs: {inputs}')
+        #print(f'label: {label}')
+        label = torch.tensor([label], dtype=torch.float32)
+        #print(f'inputs: {inputs}')
+        #print(f'label: {label}')
+
+        # 进行模型的前向传播和损失计算
+        predictions = model(inputs)
+        #print(f'predictions: {predictions}')
+        #print(f'predictions: {predictions.squeeze(1)}')
+        loss = criterion(predictions.squeeze(1), label)  # 使用squeeze(1)以匹配模型输出的形状
+        acc = binary_accuracy(predictions.squeeze(1), label)
+        #print(acc)
+        #print("test")
+        # 反向传播和优化
         loss.backward()
         optimizer.step()
-        
+
         epoch_loss += loss.item()
         epoch_acc += acc.item()
         
-    return epoch_loss / len(iterator), epoch_acc / len(iterator)
-    
+    return epoch_loss / len(train_loader), epoch_acc / len(train_loader)
+
 def evaluate(model, iterator, criterion):
     epoch_loss = 0
     epoch_acc = 0
@@ -178,19 +175,19 @@ def evaluate(model, iterator, criterion):
     model.eval()
     with torch.no_grad():
         for batch in iterator:
-            inputs = torch.LongTensor(batch.text[0])
-            if inputs.size(1) > MAX_SEQ_LEN:
-                inputs = inputs[:, :MAX_SEQ_LEN]
-            predictions = model(inputs).squeeze(1)
-            
-            label = batch.label - 1
-            loss = criterion(predictions, label)
-            acc = binary_accuracy(predictions, label)
+            inputs, label = batch
+            label = torch.tensor([label], dtype=torch.float32)
+
+            # 进行模型的前向传播和损失计算
+            predictions = model(inputs)
+            loss = criterion(predictions.squeeze(1), label)
+            acc = binary_accuracy(predictions.squeeze(1), label)
 
             epoch_loss += loss.item()
             epoch_acc += acc.item()
         
-    return epoch_loss / len(iterator), epoch_acc / len(iterator)    
+    return epoch_loss / len(iterator), epoch_acc / len(iterator)
+
 
 def epoch_time(start_time, end_time):
     elapsed_time = end_time - start_time
@@ -201,19 +198,19 @@ def epoch_time(start_time, end_time):
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-D', '--q_device', default='local', type=str)
+    parser.add_argument('-D', '--q_device', default='default.qubit', type=str)
     parser.add_argument('-B', '--batch_size', default=32, type=int)
     parser.add_argument('-E', '--n_epochs', default=5, type=int)
     parser.add_argument('-C', '--n_classes', default=2, type=int)
     parser.add_argument('-l', '--lr', default=0.001, type=float)
-    parser.add_argument('-v', '--vocab_size', default=200000, type=int)
+    parser.add_argument('-v', '--vocab_size', default=6, type=int)
     parser.add_argument('-e', '--embed_dim', default=6, type=int)
     parser.add_argument('-s', '--max_seq_len', default=64, type=int)
     parser.add_argument('-f', '--ffn_dim', default=6, type=int)
     parser.add_argument('-t', '--n_transformer_blocks', default=1, type=int)
     parser.add_argument('-H', '--n_heads', default=2, type=int)
-    parser.add_argument('-q', '--n_qubits_transformer', default=0, type=int)
-    parser.add_argument('-Q', '--n_qubits_ffn', default=0, type=int)
+    parser.add_argument('-q', '--n_qubits_transformer', default=6, type=int)
+    parser.add_argument('-Q', '--n_qubits_ffn', default=6, type=int)
     parser.add_argument('-L', '--n_qlayers', default=1, type=int)
     parser.add_argument('-d', '--dropout_rate', default=0.1, type=float)
     args = parser.parse_args()
@@ -224,16 +221,26 @@ if __name__ == '__main__':
     
     #print(train_data)
     #print(y_train)
-    y_train = y_train.reshape(50,1)
-    train_data_batch = np.concatenate((train_data, y_train), axis=1)
-    print(train_data_batch)
-    print(f'Training examples: {len(train_data)}')
-    print(f'Testing examples:  {len(test_data)}')
+
+    #print(f'Training examples: {len(train_data)}')
+    #print(f'Testing examples:  {len(test_data)}')
     
-    #train_iter, test_iter = torchtext.legacy.data.BucketIterator.splits((train_data, test_data), batch_size=args.batch_size)
-    train_iter, test_iter = train_data_batch, test_data
-    #print(train_iter)
-    print("---2---")
+    #print(f'Train_data:  {train_data.shape}')
+    #print(f'Train_label:  {y_train.shape}')
+    train_label = torch.tensor(y_train, dtype=torch.float32)
+    train_data = torch.tensor(train_data, dtype=torch.float32)
+    test_label = torch.tensor(y_test, dtype=torch.float32)
+    test_data = torch.tensor(test_data, dtype=torch.float32)
+    
+    train_dataset = TensorDataset(train_data, train_label)  
+    test_dataset = TensorDataset(test_data, test_label)  
+
+    # 创建一个DataLoader
+    batch_size = 1  # 你可以根据需要调整批量大小
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    print(f'Train_loader:  {train_loader}')
+    print(f'Train_loader:  {test_loader}')
     
     model = Classifier(embed_dim=args.embed_dim,
                            num_heads=args.n_heads,
@@ -261,9 +268,11 @@ if __name__ == '__main__':
         start_time = time.time()
 
         print(f"Epoch {iepoch+1}/{args.n_epochs}")
+        weight_matrix = model.input_linear.weight
+        #print(f"weight_matrix: {weight_matrix}")
 
-        train_loss, train_acc = train(model, train_iter, optimizer, criterion)
-        valid_loss, valid_acc = evaluate(model, test_iter, y_test, criterion)
+        train_loss, train_acc = train(model, train_loader, optimizer, criterion)
+        valid_loss, valid_acc = evaluate(model, test_loader, criterion)
 
         end_time = time.time()
 
