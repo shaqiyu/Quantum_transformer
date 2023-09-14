@@ -88,7 +88,7 @@ def preparingData(confiFile="config_qqyy.json", prossEvent=1000, fraction=0.5, s
 
     y_signal = np.ones(X_signal.shape[0])
     y_background = np.ones(X_background.shape[0])
-    y_background = 0 * y_background
+    y_background = 0 
 
     X = np.concatenate([X_signal, X_background], axis=0)
     y = np.concatenate([y_signal, y_background])
@@ -96,14 +96,6 @@ def preparingData(confiFile="config_qqyy.json", prossEvent=1000, fraction=0.5, s
     X_train, X_test, y_train, y_test = train_test_split(
         X, y, train_size=train_size, test_size=test_size, random_state=seed
     )
-
-    #if dataType=="Classical":
-    #    scaler = StandardScaler()
-    #    X_train = scaler.fit_transform(X_train)
-    #    X_test = scaler.transform(X_test)
-    #    X = scaler.fit_transform(X)
-    #else:
-    #    print("The data will be prepared for the quantum case so no transformation is needed.")
 
     labels = {1: "S", 0: "B"}
 
@@ -143,23 +135,17 @@ def train(model, train_loader, optimizer, criterion):
     for batch in train_loader:
         optimizer.zero_grad()
 
-        # 获取输入和标签
+        # Get input and label
         inputs, label = batch
-        #print(f'inputs: {inputs}')
-        #print(f'label: {label}')
         label = torch.tensor([label], dtype=torch.float32)
-        #print(f'inputs: {inputs}')
-        #print(f'label: {label}')
 
-        # 进行模型的前向传播和损失计算
+        # Loss
         predictions = model(inputs)
-        #print(f'predictions: {predictions}')
-        #print(f'predictions: {predictions.squeeze(1)}')
         loss = criterion(predictions.squeeze(1), label)  # 使用squeeze(1)以匹配模型输出的形状
         acc = binary_accuracy(predictions.squeeze(1), label)
         #print(acc)
-        #print("test")
-        # 反向传播和优化
+        
+        # backward
         loss.backward()
         optimizer.step()
 
@@ -178,7 +164,6 @@ def evaluate(model, iterator, criterion):
             inputs, label = batch
             label = torch.tensor([label], dtype=torch.float32)
 
-            # 进行模型的前向传播和损失计算
             predictions = model(inputs)
             loss = criterion(predictions.squeeze(1), label)
             acc = binary_accuracy(predictions.squeeze(1), label)
@@ -219,14 +204,9 @@ if __name__ == '__main__':
 
     train_data, test_data, y_train, y_test, train_dataset, test_dataset, X, y = preparingData()
     
-    #print(train_data)
-    #print(y_train)
-
-    #print(f'Training examples: {len(train_data)}')
-    #print(f'Testing examples:  {len(test_data)}')
+    print(f'Training examples: {len(train_data)}')
+    print(f'Testing examples:  {len(test_data)}')
     
-    #print(f'Train_data:  {train_data.shape}')
-    #print(f'Train_label:  {y_train.shape}')
     train_label = torch.tensor(y_train, dtype=torch.float32)
     train_data = torch.tensor(train_data, dtype=torch.float32)
     test_label = torch.tensor(y_test, dtype=torch.float32)
@@ -235,8 +215,7 @@ if __name__ == '__main__':
     train_dataset = TensorDataset(train_data, train_label)  
     test_dataset = TensorDataset(test_data, test_label)  
 
-    # 创建一个DataLoader
-    batch_size = 1  # 你可以根据需要调整批量大小
+    batch_size = 1 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
     print(f'Train_loader:  {train_loader}')
