@@ -1,0 +1,7 @@
+torch
+pennylane
+matplotlib
+wheel
+qulacs-gpu
+tqdm
+pennylane-qulacs

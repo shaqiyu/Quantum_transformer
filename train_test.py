@@ -15,6 +15,8 @@ from torch.utils.data import Dataset, DataLoader, TensorDataset
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import roc_auc_score, roc_curve
+from Modules.Plotter import plotROC
 
 def readConfig(configFile="config_qqyy.json"):
     with open("config/" + configFile, "r") as f_obj:
@@ -50,7 +52,7 @@ def Trandform(sigArray, bkgArray, rangConst="_0_1"):
 
     return sigConstrain, bkgConstrain
     
-def preparingData(confiFile="config_qqyy.json", prossEvent=1000, fraction=0.5, seed=None, dataType="Classical"):
+def preparingData(confiFile="config_qqyy.json", prossEvent=100, fraction=0.5, seed=None, dataType="Classical"):
     config = readConfig(confiFile)
 
     signal_dataset = root2array(
@@ -88,7 +90,7 @@ def preparingData(confiFile="config_qqyy.json", prossEvent=1000, fraction=0.5, s
 
     y_signal = np.ones(X_signal.shape[0])
     y_background = np.ones(X_background.shape[0])
-    y_background = 0 
+    y_background = 0 * y_background 
 
     X = np.concatenate([X_signal, X_background], axis=0)
     y = np.concatenate([y_signal, y_background])
@@ -130,6 +132,8 @@ def binary_accuracy(preds, y):
 def train(model, train_loader, optimizer, criterion):
     epoch_loss = 0
     epoch_acc = 0
+    all_labels = []
+    all_predictions = []
 
     model.train()
     for batch in train_loader:
@@ -141,16 +145,23 @@ def train(model, train_loader, optimizer, criterion):
 
         # Loss
         predictions = model(inputs)
-        loss = criterion(predictions.squeeze(1), label)  # 使用squeeze(1)以匹配模型输出的形状
+        loss = criterion(predictions.squeeze(1), label)  # use squeeze(1) match the input shape
         acc = binary_accuracy(predictions.squeeze(1), label)
         #print(acc)
         
+        all_labels.extend(label.cpu().numpy())
+        all_predictions.extend(predictions.squeeze(1).cpu().detach().numpy())
+
         # backward
         loss.backward()
         optimizer.step()
 
         epoch_loss += loss.item()
         epoch_acc += acc.item()
+        
+    auc = roc_auc_score(all_labels, all_predictions)
+    fpr, tpr, _ = roc_curve(all_labels, all_predictions)
+    plotROC(fpr, tpr, auc, "test")
         
     return epoch_loss / len(train_loader), epoch_acc / len(train_loader)
 
