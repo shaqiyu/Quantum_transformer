@@ -1,4 +1,4 @@
-# Quantum_transform
+# Quantum_transformer
 Use pennylane   
 
 Sample is CEPC Higgs to gammagammma.  
