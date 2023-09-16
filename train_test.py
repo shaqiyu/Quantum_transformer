@@ -52,7 +52,7 @@ def Trandform(sigArray, bkgArray, rangConst="_0_1"):
 
     return sigConstrain, bkgConstrain
     
-def preparingData(confiFile="config_qqyy.json", prossEvent=100, fraction=0.5, seed=None, dataType="Classical"):
+def preparingData(confiFile="config_qqyy.json", prossEvent=10000, fraction=0.5, seed=None):
     config = readConfig(confiFile)
 
     signal_dataset = root2array(
@@ -129,12 +129,11 @@ def binary_accuracy(preds, y):
     return acc
 
 
-def train(model, train_loader, optimizer, criterion):
+def train(model, train_loader, optimizer, criterion, Num, Type_model):
     epoch_loss = 0
     epoch_acc = 0
     all_labels = []
     all_predictions = []
-
     model.train()
     for batch in train_loader:
         optimizer.zero_grad()
@@ -161,13 +160,15 @@ def train(model, train_loader, optimizer, criterion):
         
     auc = roc_auc_score(all_labels, all_predictions)
     fpr, tpr, _ = roc_curve(all_labels, all_predictions)
-    plotROC(fpr, tpr, auc, "test")
+    plotROC(fpr, tpr, auc, f"ROC_{Num}_train_{Type_model}")
         
     return epoch_loss / len(train_loader), epoch_acc / len(train_loader)
 
-def evaluate(model, iterator, criterion):
+def evaluate(model, iterator, criterion, Num, Type_model):
     epoch_loss = 0
     epoch_acc = 0
+    all_labels = []
+    all_predictions = []
     
     model.eval()
     with torch.no_grad():
@@ -178,10 +179,17 @@ def evaluate(model, iterator, criterion):
             predictions = model(inputs)
             loss = criterion(predictions.squeeze(1), label)
             acc = binary_accuracy(predictions.squeeze(1), label)
-
+            
+            all_labels.extend(label.cpu().numpy())
+            all_predictions.extend(predictions.squeeze(1).cpu().detach().numpy())
+            
             epoch_loss += loss.item()
             epoch_acc += acc.item()
-        
+            
+    auc = roc_auc_score(all_labels, all_predictions)
+    fpr, tpr, _ = roc_curve(all_labels, all_predictions)
+    plotROC(fpr, tpr, auc, f"ROC_{Num}_val_{Type_model}")   
+         
     return epoch_loss / len(iterator), epoch_acc / len(iterator)
 
 
@@ -194,26 +202,30 @@ def epoch_time(start_time, end_time):
     
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('-D', '--q_device', default='default.qubit', type=str)
-    parser.add_argument('-B', '--batch_size', default=32, type=int)
-    parser.add_argument('-E', '--n_epochs', default=5, type=int)
-    parser.add_argument('-C', '--n_classes', default=2, type=int)
-    parser.add_argument('-l', '--lr', default=0.001, type=float)
+    parser.add_argument('-D', '--q_device', default='default.qubit', type=str)      #Fix
+    parser.add_argument('-B', '--batch_size', default=32, type=int)                 #Fix for now.
+    parser.add_argument('-E', '--n_epochs', default=10, type=int)                   #Fix for now, change after fix all hyperparameters
+    parser.add_argument('-C', '--n_classes', default=2, type=int)                   #Fix
+    parser.add_argument('-l', '--lr', default=0.001, type=float)                    #Changeable
     parser.add_argument('-v', '--vocab_size', default=6, type=int)
     parser.add_argument('-e', '--embed_dim', default=6, type=int)
-    parser.add_argument('-s', '--max_seq_len', default=64, type=int)
-    parser.add_argument('-f', '--ffn_dim', default=6, type=int)
-    parser.add_argument('-t', '--n_transformer_blocks', default=1, type=int)
+    parser.add_argument('-f', '--ffn_dim', default=2048, type=int)                    #hidden layer dimension of feedforward networks. Changeable
+    parser.add_argument('-t', '--n_transformer_blocks', default=2, type=int)       #Changeable
     parser.add_argument('-H', '--n_heads', default=2, type=int)
-    parser.add_argument('-q', '--n_qubits_transformer', default=6, type=int)
-    parser.add_argument('-Q', '--n_qubits_ffn', default=6, type=int)
-    parser.add_argument('-L', '--n_qlayers', default=1, type=int)
-    parser.add_argument('-d', '--dropout_rate', default=0.1, type=float)
+    parser.add_argument('-q', '--n_qubits_transformer', default=0, type=int) #6 for Quantum
+    parser.add_argument('-Q', '--n_qubits_ffn', default=0, type=int)         #6 for Quantum
+    parser.add_argument('-L', '--n_qlayers', default=1, type=int)            # For Quantum
+    parser.add_argument('-d', '--dropout_rate', default=0.1, type=float)            #Changeable, but for few events, 0.1 is good
     args = parser.parse_args()
 
-    MAX_SEQ_LEN = args.max_seq_len
 
-    train_data, test_data, y_train, y_test, train_dataset, test_dataset, X, y = preparingData()
+    Num_dataset = 20000
+    if args.n_qubits_transformer > 0:
+        Type_model = "Quantum"
+    else:
+        Type_model = "Classical"
+    
+    train_data, test_data, y_train, y_test, train_dataset, test_dataset, X, y = preparingData(prossEvent = Num_dataset)
     
     print(f'Training examples: {len(train_data)}')
     print(f'Testing examples:  {len(test_data)}')
@@ -226,9 +238,8 @@ if __name__ == '__main__':
     train_dataset = TensorDataset(train_data, train_label)  
     test_dataset = TensorDataset(test_data, test_label)  
 
-    batch_size = 1 
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=1, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=True)
     print(f'Train_loader:  {train_loader}')
     print(f'Train_loader:  {test_loader}')
     
@@ -261,8 +272,8 @@ if __name__ == '__main__':
         weight_matrix = model.input_linear.weight
         #print(f"weight_matrix: {weight_matrix}")
 
-        train_loss, train_acc = train(model, train_loader, optimizer, criterion)
-        valid_loss, valid_acc = evaluate(model, test_loader, criterion)
+        train_loss, train_acc = train(model, train_loader, optimizer, criterion, Num_dataset, Type_model)
+        valid_loss, valid_acc = evaluate(model, test_loader, criterion, Num_dataset, Type_model)
 
         end_time = time.time()
 

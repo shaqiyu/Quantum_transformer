@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pad_sequence
 from qiskit import QuantumCircuit, transpile, Aer, assemble
 import pennylane as qml
-
+import numpy as np
 class MultiHeadAttentionBase(nn.Module):
     def __init__(self,
                  embed_dim: int,
@@ -123,14 +123,21 @@ class MultiHeadAttentionQuantum(MultiHeadAttentionBase):
             self.dev = qml.device(q_device, wires=self.n_qubits, parallel=True)
         else:
             self.dev = qml.device(q_device, wires=self.n_qubits)
-
         def _circuit(inputs, weights):
-            qml.templates.AngleEmbedding(inputs, wires=range(self.n_qubits))
-            qml.templates.BasicEntanglerLayers(weights, wires=range(n_qubits))
+            for i in range(n_qubits):
+                qml.Hadamard(wires=i)
+            qml.AngleEmbedding(inputs, wires=range(n_qubits))
+            qml.BasicEntanglerLayers(weights, wires=range(n_qubits))
             return [qml.expval(qml.PauliZ(wires=i)) for i in range(n_qubits)]
-
+            
         self.qlayer = qml.QNode(_circuit, self.dev, interface="torch")
         self.weight_shapes = {"weights": (n_qlayers, n_qubits)}
+     
+        #draw plots
+        weights = np.random.random([n_qlayers, n_qubits])
+        X = np.random.rand(6) 
+        print(qml.draw(self.qlayer, expansion_strategy="device")(X,weights))
+       
         print(f"weight_shapes = (n_qlayers, n_qubits) = ({n_qlayers}, {self.n_qubits})")
 
         self.k_linear = qml.qnn.TorchLayer(self.qlayer, self.weight_shapes)
